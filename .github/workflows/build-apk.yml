@@ -36,46 +36,53 @@ jobs:
       - name: Add google-services gradle plugin
         run: |
           python3 - <<'PYG'
-          import re, os
-          # Root build.gradle: add classpath (supports both Groovy and KTS variants)
-          root = None
-          for cand in ['android/build.gradle', 'android/build.gradle.kts']:
-              if os.path.exists(cand):
-                  root = cand; break
-          # Newer flutter uses settings.gradle plugins block; handle both.
-          settings = None
-          for cand in ['android/settings.gradle', 'android/settings.gradle.kts']:
-              if os.path.exists(cand):
-                  settings = cand; break
+          import os, re
 
-          if settings and os.path.exists(settings):
-              t = open(settings, encoding='utf-8').read()
-              if 'com.google.gms.google-services' not in t:
-                  # add to plugins { } block, apply false
-                  if re.search(r'plugins\s*\{', t):
-                      t = re.sub(r'(plugins\s*\{)',
-                                 r'\1\n    id "com.google.gms.google-services" version "4.4.2" apply false',
-                                 t, count=1)
-                  open(settings, 'w', encoding='utf-8').write(t)
-                  print("Patched", settings)
-
-          # App-level build.gradle: apply the plugin
-          app = None
-          for cand in ['android/app/build.gradle', 'android/app/build.gradle.kts']:
-              if os.path.exists(cand):
-                  app = cand; break
-          if app:
-              t = open(app, encoding='utf-8').read()
-              if 'com.google.gms.google-services' not in t:
-                  if 'plugins {' in t:
-                      t = re.sub(r'(plugins\s*\{)',
-                                 r'\1\n    id "com.google.gms.google-services"',
-                                 t, count=1)
+          def patch_settings():
+              for cand in ['android/settings.gradle.kts', 'android/settings.gradle']:
+                  if not os.path.exists(cand):
+                      continue
+                  t = open(cand, encoding='utf-8').read()
+                  if 'com.google.gms.google-services' in t:
+                      return
+                  kts = cand.endswith('.kts')
+                  if kts:
+                      line = '    id("com.google.gms.google-services") version "4.4.2" apply false'
                   else:
-                      # legacy apply plugin style
-                      t = t.rstrip() + '\napply plugin: "com.google.gms.google-services"\n'
-                  open(app, 'w', encoding='utf-8').write(t)
-                  print("Patched", app)
+                      line = '    id "com.google.gms.google-services" version "4.4.2" apply false'
+                  m = re.search(r'plugins\s*\{', t)
+                  if m:
+                      t = t[:m.end()] + '\n' + line + t[m.end():]
+                      open(cand, 'w', encoding='utf-8').write(t)
+                      print("Patched", cand)
+                  return
+
+          def patch_app():
+              for cand in ['android/app/build.gradle.kts', 'android/app/build.gradle']:
+                  if not os.path.exists(cand):
+                      continue
+                  t = open(cand, encoding='utf-8').read()
+                  if 'com.google.gms.google-services' in t:
+                      return
+                  kts = cand.endswith('.kts')
+                  m = re.search(r'plugins\s*\{', t)
+                  if m:
+                      if kts:
+                          line = '    id("com.google.gms.google-services")'
+                      else:
+                          line = '    id "com.google.gms.google-services"'
+                      t = t[:m.end()] + '\n' + line + t[m.end():]
+                  else:
+                      if kts:
+                          t = t.rstrip() + '\napply(plugin = "com.google.gms.google-services")\n'
+                      else:
+                          t = t.rstrip() + '\napply plugin: "com.google.gms.google-services"\n'
+                  open(cand, 'w', encoding='utf-8').write(t)
+                  print("Patched", cand)
+                  return
+
+          patch_settings()
+          patch_app()
           PYG
 
       - name: Inject permissions into AndroidManifest
