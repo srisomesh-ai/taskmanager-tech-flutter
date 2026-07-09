@@ -1,0 +1,82 @@
+name: Build APK
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Generate Android platform files
+        run: flutter create --org com.bharatgps --project-name taskmanager_tech --platforms=android .
+
+      - name: Inject permissions into AndroidManifest
+        run: |
+          MANIFEST=android/app/src/main/AndroidManifest.xml
+          python3 - "$MANIFEST" <<'PY'
+          import sys, re
+          p = sys.argv[1]
+          s = open(p, encoding='utf-8').read()
+
+          perms = '''    <uses-permission android:name="android.permission.INTERNET"/>
+              <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+              <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+              <uses-permission android:name="android.permission.CAMERA"/>
+              <uses-feature android:name="android.hardware.camera" android:required="false"/>
+              <uses-feature android:name="android.hardware.location.gps" android:required="false"/>
+              <queries>
+                  <intent><action android:name="android.intent.action.VIEW"/><data android:scheme="https"/></intent>
+                  <intent><action android:name="android.intent.action.DIAL"/><data android:scheme="tel"/></intent>
+                  <intent><action android:name="android.intent.action.SENDTO"/><data android:scheme="mailto"/></intent>
+                  <package android:name="com.whatsapp"/>
+                  <package android:name="com.google.android.apps.maps"/>
+              </queries>
+          '''
+          # insert permissions right after the opening <manifest ...> tag
+          s = re.sub(r'(<manifest[^>]*>)', r'\1\n' + perms, s, count=1)
+          # add cleartext + label on <application>
+          s = s.replace('<application', '<application android:usesCleartextTraffic="true"', 1)
+          s = re.sub(r'android:label="[^"]*"', 'android:label="BharatGPS Technician"', s, count=1)
+          open(p, 'w', encoding='utf-8').write(s)
+          print("Manifest patched.")
+          PY
+          echo "----- resulting manifest -----"
+          cat android/app/src/main/AndroidManifest.xml
+
+      - name: Set SDK path
+        run: echo "sdk.dir=$ANDROID_SDK_ROOT" > android/local.properties
+
+      - name: Get packages
+        run: flutter pub get
+
+      - name: Build release APK
+        run: flutter build apk --release
+
+      - name: Rename APK
+        run: |
+          mkdir -p out
+          cp build/app/outputs/flutter-apk/app-release.apk out/BharatGPS-Technician.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: BharatGPS-Technician-APK
+          path: out/BharatGPS-Technician.apk
+          if-no-files-found: error
