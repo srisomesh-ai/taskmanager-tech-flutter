@@ -25,7 +25,58 @@ jobs:
           cache: true
 
       - name: Generate Android platform files
-        run: flutter create --org com.bharatgps --project-name taskmanager_tech --platforms=android .
+        run: flutter create --org com.bharatgps --project-name techapp --platforms=android .
+
+
+      - name: Restore google-services.json
+        run: |
+          git checkout -- android/app/google-services.json || true
+          ls -la android/app/google-services.json
+
+      - name: Add google-services gradle plugin
+        run: |
+          python3 - <<'PYG'
+          import re, os
+          # Root build.gradle: add classpath (supports both Groovy and KTS variants)
+          root = None
+          for cand in ['android/build.gradle', 'android/build.gradle.kts']:
+              if os.path.exists(cand):
+                  root = cand; break
+          # Newer flutter uses settings.gradle plugins block; handle both.
+          settings = None
+          for cand in ['android/settings.gradle', 'android/settings.gradle.kts']:
+              if os.path.exists(cand):
+                  settings = cand; break
+
+          if settings and os.path.exists(settings):
+              t = open(settings, encoding='utf-8').read()
+              if 'com.google.gms.google-services' not in t:
+                  # add to plugins { } block, apply false
+                  if re.search(r'plugins\s*\{', t):
+                      t = re.sub(r'(plugins\s*\{)',
+                                 r'\1\n    id "com.google.gms.google-services" version "4.4.2" apply false',
+                                 t, count=1)
+                  open(settings, 'w', encoding='utf-8').write(t)
+                  print("Patched", settings)
+
+          # App-level build.gradle: apply the plugin
+          app = None
+          for cand in ['android/app/build.gradle', 'android/app/build.gradle.kts']:
+              if os.path.exists(cand):
+                  app = cand; break
+          if app:
+              t = open(app, encoding='utf-8').read()
+              if 'com.google.gms.google-services' not in t:
+                  if 'plugins {' in t:
+                      t = re.sub(r'(plugins\s*\{)',
+                                 r'\1\n    id "com.google.gms.google-services"',
+                                 t, count=1)
+                  else:
+                      # legacy apply plugin style
+                      t = t.rstrip() + '\napply plugin: "com.google.gms.google-services"\n'
+                  open(app, 'w', encoding='utf-8').write(t)
+                  print("Patched", app)
+          PYG
 
       - name: Inject permissions into AndroidManifest
         run: |
