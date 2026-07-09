@@ -85,6 +85,63 @@ jobs:
           patch_app()
           PYG
 
+      - name: Enable core library desugaring
+        run: |
+          python3 - <<'PYD'
+          import os, re
+
+          def app_file():
+              for cand in ['android/app/build.gradle.kts', 'android/app/build.gradle']:
+                  if os.path.exists(cand):
+                      return cand, cand.endswith('.kts')
+              return None, False
+
+          path, kts = app_file()
+          if not path:
+              print("no app build.gradle found"); raise SystemExit(0)
+          t = open(path, encoding='utf-8').read()
+
+          if 'coreLibraryDesugaring' in t:
+              print("desugaring already present"); raise SystemExit(0)
+
+          enable_line = ('        isCoreLibraryDesugaringEnabled = true\n'
+                         if kts else
+                         '        coreLibraryDesugaringEnabled true\n')
+
+          # If a compileOptions block already exists, add the enable line inside it.
+          m = re.search(r'compileOptions\s*\{', t)
+          if m:
+              t = t[:m.end()] + '\n' + enable_line + t[m.end():]
+          else:
+              am = re.search(r'android\s*\{', t)
+              if kts:
+                  block = ('\n    compileOptions {\n'
+                           + enable_line +
+                           '        sourceCompatibility = JavaVersion.VERSION_1_8\n'
+                           '        targetCompatibility = JavaVersion.VERSION_1_8\n'
+                           '    }\n')
+              else:
+                  block = ('\n    compileOptions {\n'
+                           + enable_line +
+                           '        sourceCompatibility JavaVersion.VERSION_1_8\n'
+                           '        targetCompatibility JavaVersion.VERSION_1_8\n'
+                           '    }\n')
+              t = t[:am.end()] + block + t[am.end():]
+
+          # Add the desugaring dependency.
+          dep = ('\n    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")'
+                 if kts else
+                 '\n    coreLibraryDesugaring "com.android.tools:desugar_jdk_libs:2.0.4"')
+          dm = re.search(r'dependencies\s*\{', t)
+          if dm:
+              t = t[:dm.end()] + dep + t[dm.end():]
+          else:
+              t = t.rstrip() + '\ndependencies {' + dep + '\n}\n'
+
+          open(path, 'w', encoding='utf-8').write(t)
+          print("Enabled desugaring in", path)
+          PYD
+
       - name: Inject permissions into AndroidManifest
         run: |
           MANIFEST=android/app/src/main/AndroidManifest.xml
