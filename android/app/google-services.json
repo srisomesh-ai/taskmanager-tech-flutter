@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "395050780556",
+    "project_id": "bharat-gps-android",
+    "storage_bucket": "bharat-gps-android.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:395050780556:android:986a0d220cd5418221f8a9",
+        "android_client_info": {
+          "package_name": "com.bharatgps.bharatgps_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDbVh8rZF2pkFPknt95QHSSsSGA6W-kXyA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:395050780556:android:e269561093c2779921f8a9",
+        "android_client_info": {
+          "package_name": "com.bharatgps.techapp"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDbVh8rZF2pkFPknt95QHSSsSGA6W-kXyA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
