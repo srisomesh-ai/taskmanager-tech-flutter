@@ -5,15 +5,55 @@ import 'package:webview_flutter_android/webview_flutter_android.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 // The live technician portal — the WebView loads this exact page.
 const String kStartUrl =
     'https://salmon-goldfish-110661.hostingersite.com/app/login.html';
+const String kBaseUrl =
+    'https://salmon-goldfish-110661.hostingersite.com/app/';
 
-void main() {
+// Background handler (must be a top-level function)
+@pragma('vm:entry-point')
+Future<void> _bgHandler(RemoteMessage message) async {
+  // Firebase shows the notification automatically when the app is in background.
+}
+
+final FlutterLocalNotificationsPlugin _localNotif =
+    FlutterLocalNotificationsPlugin();
+
+const AndroidNotificationChannel _channel = AndroidNotificationChannel(
+  'bgps_tasks',
+  'Task Notifications',
+  description: 'New tasks and updates for technicians',
+  importance: Importance.high,
+);
+
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   SystemChrome.setPreferredOrientations(
       [DeviceOrientation.portraitUp, DeviceOrientation.portraitDown]);
+
+  try {
+    await Firebase.initializeApp();
+    FirebaseMessaging.onBackgroundMessage(_bgHandler);
+
+    // Local-notifications channel (for showing pushes while app is open)
+    await _localNotif
+        .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>()
+        ?.createNotificationChannel(_channel);
+    await _localNotif.initialize(
+      const InitializationSettings(
+        android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+      ),
+    );
+  } catch (_) {
+    // If Firebase isn't configured yet, the app still runs as a plain WebView.
+  }
+
   runApp(const TechApp());
 }
 
@@ -42,12 +82,17 @@ class WebShell extends StatefulWidget {
 class _WebShellState extends State<WebShell> {
   late final WebViewController _controller;
   bool _loading = true;
+  String? _fcmToken;
 
   @override
   void initState() {
     super.initState();
     _requestPermissions();
+    _setupWebView();
+    _setupMessaging();
+  }
 
+  void _setupWebView() {
     late final PlatformWebViewControllerCreationParams params;
     params = const PlatformWebViewControllerCreationParams();
     final controller = WebViewController.fromPlatformCreationParams(params);
@@ -58,10 +103,12 @@ class _WebShellState extends State<WebShell> {
       ..setNavigationDelegate(
         NavigationDelegate(
           onPageStarted: (_) => setState(() => _loading = true),
-          onPageFinished: (_) => setState(() => _loading = false),
+          onPageFinished: (_) {
+            setState(() => _loading = false);
+            _injectFcmToken();
+          },
           onNavigationRequest: (req) {
             final url = req.url;
-            // Open external links (WhatsApp, tel:, maps, mailto) outside the WebView
             if (url.startsWith('tel:') ||
                 url.startsWith('mailto:') ||
                 url.startsWith('whatsapp:') ||
@@ -80,7 +127,6 @@ class _WebShellState extends State<WebShell> {
       )
       ..loadRequest(Uri.parse(kStartUrl));
 
-    // Android: allow geolocation prompts inside the WebView
     if (controller.platform is AndroidWebViewController) {
       AndroidWebViewController.enableDebugging(false);
       (controller.platform as AndroidWebViewController)
@@ -97,13 +143,68 @@ class _WebShellState extends State<WebShell> {
     _controller = controller;
   }
 
+  Future<void> _setupMessaging() async {
+    try {
+      final messaging = FirebaseMessaging.instance;
+      await messaging.requestPermission();
+      _fcmToken = await messaging.getToken();
+      _injectFcmToken();
+
+      messaging.onTokenRefresh.listen((t) {
+        _fcmToken = t;
+        _injectFcmToken();
+      });
+
+      // Foreground: show a local notification (Android won't auto-show these)
+      FirebaseMessaging.onMessage.listen((RemoteMessage m) {
+        final n = m.notification;
+        if (n != null) {
+          _localNotif.show(
+            n.hashCode,
+            n.title,
+            n.body,
+            NotificationDetails(
+              android: AndroidNotificationDetails(
+                _channel.id,
+                _channel.name,
+                channelDescription: _channel.description,
+                importance: Importance.high,
+                priority: Priority.high,
+                icon: '@mipmap/ic_launcher',
+              ),
+            ),
+            payload: m.data['url'] as String?,
+          );
+        }
+      });
+
+      // Tap on a notification that opened the app
+      FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage m) {
+        final url = m.data['url'] as String?;
+        if (url != null && url.isNotEmpty) {
+          _controller.loadRequest(Uri.parse(kBaseUrl + url));
+        }
+      });
+    } catch (_) {
+      // Firebase not ready — ignore, app still works as WebView.
+    }
+  }
+
+  void _injectFcmToken() {
+    if (_fcmToken == null) return;
+    final safe = _fcmToken!.replaceAll("'", "");
+    _controller.runJavaScript(
+      "window.BGPS_FCM_TOKEN='$safe';",
+    );
+  }
+
   Future<void> _requestPermissions() async {
     await [
       Permission.location,
       Permission.locationWhenInUse,
       Permission.camera,
+      Permission.notification,
     ].request();
-    // Ensure device location services are on for geolocation
     await Geolocator.isLocationServiceEnabled();
   }
 
