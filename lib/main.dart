@@ -215,12 +215,52 @@ class _WebShellState extends State<WebShell> {
     }
   }
 
+  Future<bool> _confirmExit() async {
+    final exit = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Exit app?'),
+        content: const Text('Do you want to close BharatGPS Technician?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: TextButton.styleFrom(foregroundColor: const Color(0xFF0E5C5C)),
+            child: const Text('Exit'),
+          ),
+        ],
+      ),
+    );
+    return exit == true;
+  }
+
   Future<bool> _onBack() async {
+    // Determine current page URL
+    String url = '';
+    try { url = (await _controller.currentUrl()) ?? ''; } catch (_) {}
+    final isHome = url.contains('dashboard.html') ||
+                   url.contains('login.html') ||
+                   url.endsWith('/app/') ||
+                   url.endsWith('/app');
+
+    // On the home/dashboard (or login) screen → confirm exit, close app if confirmed
+    if (isHome) {
+      if (await _confirmExit()) { SystemNavigator.pop(); }
+      return false; // we handle exit ourselves; never auto-pop
+    }
+
+    // Otherwise, navigate back within the WebView if possible
     if (await _controller.canGoBack()) {
       await _controller.goBack();
       return false;
     }
-    return true;
+
+    // Not home and can't go back → confirm exit as a safe fallback
+    if (await _confirmExit()) { SystemNavigator.pop(); }
+    return false;
   }
 
   @override
