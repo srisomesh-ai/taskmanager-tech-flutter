@@ -8,6 +8,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:image_picker/image_picker.dart';
 
 // The live technician portal — the WebView loads this exact page.
 const String kStartUrl =
@@ -138,6 +139,21 @@ class _WebShellState extends State<WebShell> {
       );
       (controller.platform as AndroidWebViewController)
           .setMediaPlaybackRequiresUserGesture(false);
+      // Enable the HTML file picker ("Choose file") inside the WebView — needed for
+      // uploading the payment screenshot. Without this, tapping Choose file does nothing.
+      (controller.platform as AndroidWebViewController).setOnShowFileSelector(
+        (FileSelectorParams params) async {
+          try {
+            final picker = ImagePicker();
+            // Payment screenshots are images; open gallery (or camera on some devices)
+            final XFile? image = await picker.pickImage(source: ImageSource.gallery);
+            if (image == null) return <String>[];
+            return <String>['file://${image.path}'];
+          } catch (_) {
+            return <String>[];
+          }
+        },
+      );
     }
 
     _controller = controller;
