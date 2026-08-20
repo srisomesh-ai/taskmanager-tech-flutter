@@ -126,7 +126,11 @@ class _WebShellState extends State<WebShell> {
           },
         ),
       )
-      ..loadRequest(Uri.parse(kStartUrl));
+      ..loadRequest(Uri.parse(kStartUrl + '?_v=' + DateTime.now().millisecondsSinceEpoch.toString()));
+
+    // Clear any stale WebView HTTP cache so deployed website changes always show.
+    // (Do NOT clear localStorage — that holds the login token.)
+    try { controller.clearCache(); } catch (_) {}
 
     if (controller.platform is AndroidWebViewController) {
       AndroidWebViewController.enableDebugging(false);
@@ -254,27 +258,39 @@ class _WebShellState extends State<WebShell> {
   }
 
   Future<bool> _onBack() async {
-    // Determine current page URL
+    // Let the WEB PAGE handle back first. The page closes any open panel/overlay and returns
+    // 'handled' if it did something, or 'exit' if it is truly at the home screen with nothing open.
+    // This is essential because all panels live on dashboard.html (same URL), so Flutter alone
+    // cannot tell a panel is open — only the page knows.
+    try {
+      final res = await _controller.runJavaScriptReturningResult(
+        "(window.__handleAndroidBack ? window.__handleAndroidBack() : 'nofunc')");
+      final v = res.toString().replaceAll('"', '');
+      if (v == 'handled') {
+        return false; // page closed a panel or armed exit — stay in the app
+      }
+      if (v == 'exit') {
+        if (await _confirmExit()) { SystemNavigator.pop(); }
+        return false;
+      }
+      // 'nofunc' → page has no handler (old cached page or a plain page) — fall through.
+    } catch (_) {}
+
+    // Fallback (old behaviour) if the page couldn't answer.
     String url = '';
     try { url = (await _controller.currentUrl()) ?? ''; } catch (_) {}
     final isHome = url.contains('dashboard.html') ||
                    url.contains('login.html') ||
                    url.endsWith('/app/') ||
                    url.endsWith('/app');
-
-    // On the home/dashboard (or login) screen → confirm exit, close app if confirmed
     if (isHome) {
       if (await _confirmExit()) { SystemNavigator.pop(); }
-      return false; // we handle exit ourselves; never auto-pop
+      return false;
     }
-
-    // Otherwise, navigate back within the WebView if possible
     if (await _controller.canGoBack()) {
       await _controller.goBack();
       return false;
     }
-
-    // Not home and can't go back → confirm exit as a safe fallback
     if (await _confirmExit()) { SystemNavigator.pop(); }
     return false;
   }
